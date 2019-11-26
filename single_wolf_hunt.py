@@ -15,7 +15,7 @@ wolf_v = 13.6  # the speed of wolf
 wolf_x = []
 wolf_y = []
 round_count = 0  # 轮数计数器
-delta_t = 0.3
+delta_t = 0.3  # 时间间隔
 d = []  # distance list between sheep and wolf
 
 obs_n = 15
@@ -27,7 +27,6 @@ fig, ax = plt.subplots()
 
 
 def init():
-    # fig = plt.axis([0, max_size, 0, max_size])
     init_sheep_x = init_center  # 初始化羊群中心点x
     init_sheep_y = init_center  # 初始化羊群中心点y
     seed = np.random.randint(0, 2)
