@@ -11,14 +11,19 @@ sheep_x = []
 sheep_y = []
 sheep_flag = []  # 是否遇到障碍物
 sheep_v = 11.1  # the speed of sheep
+elude_tan = []  # 进入躲避模式后设立的运动切点方向
+elude_flag = []  # 进入躲避模式后是否逃脱的标志
+elude_sheep = []  # 进入躲避模式后保存羊初始位置的坐标信息
+predict_wolf = (0, 0)
 wolf_v = 13.6  # the speed of wolf
-wolf_x = []
-wolf_y = []
+wolf_x = []  # 狼的横坐标
+wolf_y = []  # 狼的纵坐标
 round_count = 0  # 轮数计数器
-delta_t = 0.3  # 时间间隔
+delta_t = 0.5  # 时间间隔
 d = []  # distance list between sheep and wolf
+wolf_flag: bool = False  # 狼的目标猎物是否进入躲避模式
 
-obs_n = 15
+obs_n = 10
 d_sheep_obs = []  # 外层表示障碍物编号，内层表示与每一只羊的距离
 d_wolf_obs = []
 obstacles = []  # the coordinates and radius list of obstacles
@@ -30,7 +35,7 @@ def init():
     init_sheep_x = init_center  # 初始化羊群中心点x
     init_sheep_y = init_center  # 初始化羊群中心点y
     seed = np.random.randint(0, 2)
-    if seed == 1:
+    if seed == 1:  # 分区域随机生成狼的位置
         init_wolf_x = np.random.randint(init_sheep_x - init_distance, init_sheep_x - 50)
     else:
         init_wolf_x = np.random.randint(init_sheep_x + 50, init_sheep_x + init_distance)
@@ -51,20 +56,26 @@ def init():
     for i in range(obs_n):  # 随机生成障碍物  # 第i个障碍物
         seed = np.random.randint(0, 2)
         if seed == 1:
-            x = np.random.randint(init_sheep_x - 300, init_sheep_x - 50)  # 在羊群中心周围随机生成第i个障碍物x坐标
+            x = np.random.randint(init_sheep_x - 500, init_sheep_x - 50)  # 在羊群中心周围随机生成第i个障碍物x坐标
         else:
-            x = np.random.randint(init_sheep_x + 50, init_sheep_x + 300)
+            x = np.random.randint(init_sheep_x + 50, init_sheep_x + 500)
         seed = np.random.randint(0, 2)
         if seed == 1:
-            y = np.random.randint(init_sheep_y - 300, init_sheep_y - 50)  # 在羊群中心周围随机生成第i个障碍物y坐标
+            y = np.random.randint(init_sheep_y - 500, init_sheep_y - 50)  # 在羊群中心周围随机生成第i个障碍物y坐标
         else:
-            y = np.random.randint(init_sheep_y + 50, init_sheep_y + 300)
+            y = np.random.randint(init_sheep_y + 50, init_sheep_y + 500)
         r = np.random.randint(10, 30)
         obstacles.append((x, y, r))
         d_sheep_obs.append([])
+        elude_tan.append([])
+        elude_flag.append([])
+        elude_sheep.append([])
         for j in range(sheep_n):
             d_sheep_obs[i].append(calculate_d(sheep_x[j], sheep_y[j], obstacles[i][0], obstacles[i][1]))
-            # 初始化d_sheep_obs
+            elude_tan[i].append((0, 0))
+            elude_flag[i].append(True)
+            elude_sheep[i].append((0, 0))
+            # 初始化躲避模式相关参数
 
     update_plt()
 
@@ -96,8 +107,12 @@ def update_sheep():
         for j in range(obs_n):
             if d_sheep_obs[j][i] <= 2.5 * obstacles[j][2]:
                 sheep_flag[i] = True
-                elude_obstacles(i, j)
-                break
+                if elude_flag[j][i]:
+                    elude_obstacles(i, j)
+                    break
+                else:
+                    update_sheep_obs(elude_tan[j][i][0], elude_tan[j][i][1], i, j)
+                    break
             else:
                 sheep_flag[i] = False
         if not sheep_flag[i]:
@@ -112,6 +127,7 @@ def elude_obstacles(sheep_i, k):
     :return:
     """
     # Ax+By+C=0
+    global predict_wolf
     r = obstacles[k][2]
     xk = obstacles[k][0]
     yk = obstacles[k][1]
@@ -136,41 +152,51 @@ def elude_obstacles(sheep_i, k):
         sheep_motion_list = compare_angle(x1, y1, x2, y2, sheep_i)
         x = sheep_motion_list[0]
         y = sheep_motion_list[1]
-        update_sheep_obs(x, y, sheep_i)
+        elude_tan[k][sheep_i] = (x, y)
+        elude_sheep[k][sheep_i] = (sheep_x[sheep_i], sheep_y[sheep_i])
+        update_sheep_obs(x, y, sheep_i, k)  # 更新羊和障碍物距离
         target = find_min_distance()
         if sheep_i == target:
-            update_wolf_predict(x, y, sheep_i)
+            predict_wolf = (wolf_x[0], wolf_y[0])
+            update_wolf_predict(x, y, sheep_i, k)
+        elude_flag[k][sheep_i] = False
     else:
         sheep_flag[sheep_i] = False
+        elude_flag[k][sheep_i] = True
         update_sheep_normal(sheep_i)
 
 
-def update_wolf_predict(x_tan, y_tan, i):
+def update_wolf_predict(x_tan, y_tan, i, k):
     """
     when sheep i encounters an obstacle, the wolf will make prediction
     """
-    d_temp = math.sqrt((2 * x_tan - sheep_x[i] - wolf_x[0]) ** 2 + (2 * y_tan - sheep_y[i] - wolf_y[0]) ** 2)
-    wolf_x[0] = wolf_x[0] + (2 * x_tan - sheep_x[i] - wolf_x[0]) / d_temp * delta_t * wolf_v
-    wolf_y[0] = wolf_y[0] + (2 * y_tan - sheep_y[i] - wolf_y[0]) / d_temp * delta_t * wolf_v
+    d_temp = math.sqrt((2 * x_tan - elude_sheep[k][i][0] - predict_wolf[0]) ** 2 + (2 * y_tan - elude_sheep[k][i][1]
+                                                                                    - predict_wolf[1]) ** 2)
+    wolf_x[0] = wolf_x[0] + (2 * x_tan - elude_sheep[k][i][0] - predict_wolf[0]) / d_temp * delta_t * wolf_v
+    wolf_y[0] = wolf_y[0] + (2 * y_tan - elude_sheep[k][i][1] - predict_wolf[1]) / d_temp * delta_t * wolf_v
     d[i] = calculate_d(sheep_x[i], sheep_y[i], wolf_x[0], wolf_y[0])
-    update_d()
+    update_d_wolf()
     if d[i] <= 0.6:
         kill(d[i])
 
 
-def update_sheep_obs(x_tan, y_tan, i):
+def update_sheep_obs(x_tan, y_tan, i, k):
     """
     update position of sheep who is eluding an obstacle
     :param x_tan: the x coordinate of escape route line and obstacle's tangent point
     :param y_tan: the y coordinate of escape route line and obstacle's tangent point
     :param i: the index of sheep
+    :param k: the index of obs
     :return:
     """
-    d_tan_sheep = calculate_d(sheep_x[i], sheep_y[i], x_tan, y_tan)
-    sheep_x[i] = sheep_x[i] + ((x_tan - sheep_x[i]) / d_tan_sheep) * delta_t * sheep_v
-    sheep_y[i] = sheep_y[i] + ((y_tan - sheep_y[i]) / d_tan_sheep) * delta_t * sheep_v
+    d_tan_sheep = calculate_d(elude_sheep[k][i][0], elude_sheep[k][i][1], x_tan, y_tan)
+    sheep_x[i] = sheep_x[i] + ((x_tan - elude_sheep[k][i][0]) / d_tan_sheep) * delta_t * sheep_v * 0.8
+    sheep_y[i] = sheep_y[i] + ((y_tan - elude_sheep[k][i][1]) / d_tan_sheep) * delta_t * sheep_v * 0.8
     d[i] = calculate_d(sheep_x[i], sheep_y[i], wolf_x[0], wolf_y[0])  # 更新狼和羊群的距离
     update_d_sheep_obs(i)
+    if d_sheep_obs[k][i] >= 2.5 * obstacles[k][2]:
+        elude_flag[k][i] = True
+        sheep_flag[i] = False
 
 
 def compare_angle(x1, y1, x2, y2, sheep_i):
@@ -192,7 +218,7 @@ def calculate_acos(x, y, sheep_i):
                          (x - x_si) ** 2 + (y - y_si) ** 2)))
 
 
-def update_d():
+def update_d_wolf():
     for i in range(sheep_n):
         d[i] = calculate_d(sheep_x[i], sheep_y[i], wolf_x[0], wolf_y[0])
 
@@ -211,21 +237,31 @@ def update_wolf():
         wolf_x[0] = wolf_x[0] + ((sheep_x[i] - wolf_x[0]) / d[i]) * delta_t * wolf_v
         wolf_y[0] = wolf_y[0] + ((sheep_y[i] - wolf_y[0]) / d[i]) * delta_t * wolf_v
         d[i] = calculate_d(sheep_x[i], sheep_y[i], wolf_x[0], wolf_y[0])
-        update_d()
+        update_d_wolf()
         if d[i] <= 0.6:
             kill(d[i])
 
 
 def on_click(event):
+    global wolf_flag
     update_sheep()
-    update_wolf()
+    target = find_min_distance()
+    for i in range(obs_n):
+        if not elude_flag[i][target]:
+            update_wolf_predict(elude_tan[i][target][0], elude_tan[i][target][1], target, i)
+            wolf_flag = True
+            break
+    if not wolf_flag:
+        update_wolf()
+    else:
+        wolf_flag = False
     update_plt()
 
 
 def update_plt():
     global round_count
     round_count += 1
-    fig.canvas.mpl_connect('button_press_event', on_click)  # 设置鼠标按键进行下一轮操作
+    fig.canvas.mpl_connect('key_press_event', on_click)  # 设置鼠标按键进行下一轮操作
     plt.clf()
     plt.scatter(sheep_x, sheep_y, s=10, c='lightblue', label='sheep')  # 更新羊群坐标
     plt.scatter(wolf_x, wolf_y, s=10, c='gray', label='wolf')  # 更新狼的坐标
@@ -235,7 +271,7 @@ def update_plt():
                     c='red')  # 更新羊群坐标
     plt.title("round " + str(round_count))
     plt.legend()
-    plt.pause(9999)
+    plt.pause(120)
 
 
 def kill(distance):
