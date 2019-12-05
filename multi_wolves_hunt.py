@@ -4,22 +4,22 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 bison_n: int = 10  # the amount of sheep
-max_size = 2000  # map size
+max_size = 3000  # map size
 init_center = max_size / 2  # 初始化野牛群中心位置
-init_distance = 100  # 初始化狼距离野牛群中心的位置
+init_distance = 500  # 初始化狼距离野牛群中心的位置
 bison_x = []
 bison_y = []
 bison_flag = []  # 是否遇到障碍物
 bison_elude_wolf_flag = []  # 野牛是否开始进入逃跑模式
 all_bison_elude_wolf_flag = False  # 所有野牛进入逃跑模式标志
-bison_v = 11.1  # the speed of sheep
+bison_v = 11.0  # the speed of sheep
 bison_angle = []
 elude_tan = []  # 进入躲避障碍物模式后设立的运动切点方向
 elude_flag = []  # 进入躲避障碍物模式后是否逃脱的标志
 elude_bison = []  # 进入躲避障碍物模式后保存野牛初始位置的坐标信息
 predict_wolf = []
-wolf_n = 5  # the amount of wolves
-wolf_v = 13.6  # the speed of wolf
+wolf_n = 3  # the amount of wolves
+wolf_v = 12.6  # the speed of wolf
 wolf_x = []  # 狼的横坐标
 wolf_y = []  # 狼的纵坐标
 wolf_stage2_round_count = 0  # 所有野牛速度提升至100后，狼速度提升至85%的回合数
@@ -27,29 +27,44 @@ round_count = 0  # 轮数计数器
 delta_t = 0.5  # 时间间隔
 d = []  # distance list between bison and wolf
 wolf_flag: bool = False  # 狼的目标猎物是否进入躲避模式
+wolf_group = [[], [], []]
+wolf_group_flag = []
+side_group_amount = 0
+tail_group_amount = 0
+surround_r = 5  # 包围半径
 
 obs_n = 15
 d_bison_obs = []  # 外层表示障碍物编号，内层表示与每一只野牛的距离
 d_wolf_obs = []
 obstacles = []  # the coordinates and radius list of obstacles
 
+successful_flag = 0
+successful_count = 0
+max_round = 350
+max_sim_times = 100
+kill_rate = 0.1
+
 fig, ax = plt.subplots()
 
 
 def init():
     global d_bison_obs, elude_tan, elude_flag, elude_bison, d
+    global side_group_amount, tail_group_amount, wolf_group_flag
     init_bison_x = init_center  # 初始化野牛中心点x
     init_bison_y = init_center  # 初始化野牛中心点y
     seed = np.random.randint(0, 2)
     if seed == 1:  # 分区域随机生成狼的位置
-        init_wolf_x = np.random.randint(init_bison_x - init_distance, init_bison_x - 50)
+        init_wolf_x = np.random.randint(init_bison_x - init_distance, init_bison_x - 200)
     else:
-        init_wolf_x = np.random.randint(init_bison_x + 50, init_bison_x + init_distance)
+        init_wolf_x = np.random.randint(init_bison_x + 200, init_bison_x + init_distance)
     seed = np.random.randint(0, 2)
     if seed == 1:
-        init_wolf_y = np.random.randint(init_bison_y - init_distance, init_bison_y - 50)
+        init_wolf_y = np.random.randint(init_bison_y - init_distance, init_bison_y - 200)
     else:
-        init_wolf_y = np.random.randint(init_bison_y + 50, init_bison_y + init_distance)
+        init_wolf_y = np.random.randint(init_bison_y + 200, init_bison_y + init_distance)
+    side_group_amount = int(wolf_n/3)
+    tail_group_amount = wolf_n - 2 * side_group_amount
+    wolf_group_flag = [False, False, False]
     for i in range(wolf_n):
         x = np.random.randint(init_wolf_x - 10, init_wolf_x + 10)  # 在野牛群中心周围随机生成第i只狼x坐标
         wolf_x.append(x)
@@ -91,7 +106,7 @@ def init():
             elude_flag[i].append(True)
             elude_bison[i].append((0, 0))
             # 初始化躲避模式相关参数
-    update_plt()
+    # update_plt()
 
 
 def find_min_distance(i):
@@ -216,9 +231,9 @@ def elude_obstacles(bison_i, k, p):
         bison_flag[bison_i] = True
         a2 = -1 / (xk - bison_x[bison_i])
         b2 = yk - bison_y[bison_i]
-        n1 = (-a2 ** 2 * b2 * r ** 2 + r * math.sqrt(a2 ** 2 * b2 ** 2 + 1 - a2 ** 2 * r ** 2)) / (
+        n1 = (-a2 ** 2 * b2 * r ** 2 + r * math.sqrt(math.fabs(a2 ** 2 * b2 ** 2 + 1 - a2 ** 2 * r ** 2))) / (
                 a2 ** 2 * b2 ** 2 + 1)
-        n2 = (-a2 ** 2 * b2 * r ** 2 - r * math.sqrt(a2 ** 2 * b2 ** 2 + 1 - a2 ** 2 * r ** 2)) / (
+        n2 = (-a2 ** 2 * b2 * r ** 2 - r * math.sqrt(math.fabs(a2 ** 2 * b2 ** 2 + 1 - a2 ** 2 * r ** 2))) / (
                 a2 ** 2 * b2 ** 2 + 1)
         m1 = a2 * r ** 2 + a2 * b2 * n1
         m2 = a2 * r ** 2 + a2 * b2 * n2
@@ -244,10 +259,37 @@ def elude_obstacles(bison_i, k, p):
         update_bison_normal(bison_i)
 
 
+def surround_position_calculate(i, p):
+    if 0 <= p < side_group_amount:
+        x = bison_x[i] - surround_r
+        y = bison_y[i]
+        v = wolf_v + 1
+        group_index = 0
+    elif side_group_amount <= p < 2 * side_group_amount:
+        x = bison_x[i] + surround_r
+        y = bison_y[i]
+        v = wolf_v + 1
+        group_index = 1
+    else:
+        x = bison_x[i]
+        y = bison_y[i] - surround_r
+        v = wolf_v
+        group_index = 2
+    return x, y, v, group_index
+
+
 def update_wolf_stage1(i, p, coe):  # basic function of update wolves position
-    wolf_x[p] = wolf_x[p] + ((bison_x[i] - wolf_x[p]) / d[i][p]) * delta_t * wolf_v * coe
-    wolf_y[p] = wolf_y[p] + ((bison_y[i] - wolf_y[p]) / d[i][p]) * delta_t * wolf_v * coe
+    surround_x, surround_y, v, group_index = surround_position_calculate(i, p)
+    d_surround = calculate_d(surround_x, surround_y, wolf_x[p], wolf_y[p])
+    wolf_x[p] = wolf_x[p] + ((surround_x - wolf_x[p]) / d_surround) * delta_t * v * coe
+    wolf_y[p] = wolf_y[p] + ((surround_y - wolf_y[p]) / d_surround) * delta_t * v * coe
     update_d_wolf_bison(p)
+    if calculate_d(surround_x, surround_y, wolf_x[p], wolf_y[p]) < surround_r * (1.414 / 2):
+        wolf_group_flag[group_index] = True
+    else:
+        wolf_group_flag[group_index] = False
+    if (np.array(wolf_group_flag)).all():
+        kill()
 
 
 def update_wolf_stage2(i, p):
@@ -258,17 +300,43 @@ def update_wolf_stage3(i, p):
     update_wolf_stage1(i, p, 1)  # 狼将速度提高到85%并运行一段时间后，将速度提高到100%
 
 
+def predict_surround_position_calculate(i, p, k):
+    if 0 <= p < side_group_amount:
+        x = elude_bison[k][i][0] - surround_r / 2
+        y = elude_bison[k][i][1]
+        v = wolf_v + 1
+        group_index = 0
+    elif side_group_amount <= p < 2 * side_group_amount:
+        x = elude_bison[k][i][0] + surround_r / 2
+        y = elude_bison[k][i][1]
+        v = wolf_v + 1
+        group_index = 1
+    else:
+        x = elude_bison[k][i][0]
+        y = elude_bison[k][i][1] - surround_r / 2
+        v = wolf_v
+        group_index = 2
+    return x, y, v, group_index
+
+
 def update_wolf_predict(x_tan, y_tan, i, k):
     """
     when sheep i encounters an obstacle, the wolf will make prediction
     """
     for p in range(wolf_n):
-        d_temp = math.sqrt((2 * x_tan - elude_bison[k][i][0] - predict_wolf[p][0]) ** 2 + (2 * y_tan - elude_bison[k][i][1]
-                                                                                        - predict_wolf[p][1]) ** 2)
-        turn_v = math.sqrt(wolf_v ** 2 - 10 * wolf_v * (1 - math.cos(bison_angle[i]) ** 2) / math.cos(bison_angle[i]))
-        wolf_x[p] = wolf_x[p] + (2 * x_tan - elude_bison[k][i][0] - predict_wolf[p][0]) / d_temp * delta_t * turn_v
-        wolf_y[p] = wolf_y[p] + (2 * y_tan - elude_bison[k][i][1] - predict_wolf[p][1]) / d_temp * delta_t * turn_v
+        surround_x, surround_y, v, group_index = predict_surround_position_calculate(i, p, k)
+        d_temp = math.sqrt(math.fabs((2 * x_tan - surround_x - predict_wolf[p][0]) ** 2 + (2 * y_tan - surround_y
+                                                                                 - predict_wolf[p][1]) ** 2))
+        turn_v = math.sqrt(math.fabs(v ** 2 - 10 * v * (1 - math.cos(bison_angle[i]) ** 2) / math.cos(bison_angle[i])))
+        wolf_x[p] = wolf_x[p] + (2 * x_tan - surround_x - predict_wolf[p][0]) / d_temp * delta_t * turn_v
+        wolf_y[p] = wolf_y[p] + (2 * y_tan - surround_y - predict_wolf[p][1]) / d_temp * delta_t * turn_v
         update_d_wolf_bison(p)
+        if calculate_d(surround_x, surround_y, wolf_x[p], wolf_y[p]) < surround_r * (1.414 / 2):
+            wolf_group_flag[group_index] = True
+        else:
+            wolf_group_flag[group_index] = False
+        if (np.array(wolf_group_flag)).all():
+            kill()
 
 
 def update_d_bison_wolf(i):
@@ -301,7 +369,8 @@ def update_bison_obs(x_tan, y_tan, i, k):
     :return:
     """
     d_tan_bison = calculate_d(elude_bison[k][i][0], elude_bison[k][i][1], x_tan, y_tan)
-    turn_v = math.sqrt(bison_v ** 2 - 10 * bison_v * (1 - math.cos(bison_angle[i]) ** 2) / math.cos(bison_angle[i]))
+    turn_v = math.sqrt(
+        math.fabs(bison_v ** 2 - 10 * bison_v * (1 - math.cos(bison_angle[i]) ** 2) / math.cos(bison_angle[i])))
     bison_x[i] = bison_x[i] + ((x_tan - elude_bison[k][i][0]) / d_tan_bison) * delta_t * turn_v
     bison_y[i] = bison_y[i] + ((y_tan - elude_bison[k][i][1]) / d_tan_bison) * delta_t * turn_v
     update_d_bison_wolf(i)  # 更新狼和野牛的距离
@@ -340,7 +409,33 @@ def update_d_wolf():
         d[i] = calculate_d(bison_x[i], bison_y[i], wolf_x[0], wolf_y[0])
 
 
+def kill():
+    global successful_flag, successful_count
+    rate = np.random.random()  # 随机生成一个捕杀成功率
+    if rate < kill_rate:  # 根据资料显示狼捕杀成功率平均在14%
+        # print("Successfully hunt! Round:", round_count)
+        successful_flag = 1
+        successful_count += 1
+
+
 def on_click(event):
+    # global wolf_flag
+    # update_bison()
+    # target = find_min_distance_wolf()
+    # for i in range(obs_n):
+    #     if not elude_flag[i][target]:
+    #         update_wolf_predict(elude_tan[i][target][0], elude_tan[i][target][1], target, i)
+    #         wolf_flag = True
+    #         break
+    # if not wolf_flag:
+    #     update_wolf()
+    # else:
+    #     wolf_flag = False
+    # update_plt()
+    run()
+
+
+def sim():
     global wolf_flag
     update_bison()
     target = find_min_distance_wolf()
@@ -353,8 +448,34 @@ def on_click(event):
         update_wolf()
     else:
         wolf_flag = False
-    update_plt()
 
+
+def delete_list():
+    global wolf_x, wolf_y, predict_wolf, wolf_n
+    del bison_x[-bison_n:], bison_y[-bison_n:], bison_flag[-bison_n:], elude_bison[-bison_n:], bison_angle[-bison_n:]
+    del wolf_x[-wolf_n:], wolf_y[-wolf_n:]
+    del predict_wolf[-wolf_n:]
+    del d[-bison_n:]
+    del obstacles[-obs_n:], d_bison_obs[-obs_n:], elude_tan[-obs_n:], elude_flag[-obs_n:], elude_bison[-obs_n:]
+
+
+def run():
+    global successful_flag, successful_count, round_count, kill_rate, wolf_n
+    for _ in range(10):
+        print("wolf n", wolf_n)
+        for _ in range(max_sim_times):
+            init()
+            round_count += 1
+            for _ in range(max_round):
+                if successful_flag == 0:
+                    sim()
+                else:
+                    break
+            delete_list()
+            successful_flag = 0
+        print(successful_count/max_sim_times*100, "%")
+        successful_count = 0
+        wolf_n += 1
 
 def update_plt():
     global round_count
@@ -373,4 +494,4 @@ def update_plt():
 
 
 if __name__ == '__main__':
-    init()
+    run()

@@ -33,6 +33,7 @@ successful_flag = 0
 successful_count = 0
 max_round = 400
 max_sim_times = 1000
+kill_rate = 0.2
 
 fig, ax = plt.subplots()
 
@@ -300,18 +301,22 @@ def delete_list():
 
 
 def run():
-    global successful_flag, round_count
-    for _ in range(max_sim_times):
-        init()
-        round_count += 1
-        for _ in range(max_round):
-            if successful_flag == 0:
-                sim()
-            else:
-                break
-        delete_list()
-        successful_flag = 0
-    print(successful_count/max_sim_times*100, "%")
+    global successful_flag, successful_count, round_count, kill_rate
+    for _ in range(16):
+        print(kill_rate)
+        for _ in range(max_sim_times):
+            init()
+            round_count += 1
+            for _ in range(max_round):
+                if successful_flag == 0:
+                    sim()
+                else:
+                    break
+            delete_list()
+            successful_flag = 0
+        print(successful_count/max_sim_times*100, "%")
+        successful_count = 0
+        kill_rate -= 0.05
 
 
 def update_plt():
@@ -332,9 +337,9 @@ def update_plt():
 
 def kill(distance):
     global successful_flag, successful_count
-    kill_rate = np.random.random()  # 随机生成一个捕杀成功率
-    if kill_rate < 0.14:  # 根据资料显示狼捕杀成功率平均在14%
-        print("Successfully hunt! Round:", round_count)
+    rate = np.random.random()  # 随机生成一个捕杀成功率
+    if rate < kill_rate:  # 根据资料显示狼捕杀成功率平均在14%
+        # print("Successfully hunt! Round:", round_count)
         successful_flag = 1
         successful_count += 1
 
